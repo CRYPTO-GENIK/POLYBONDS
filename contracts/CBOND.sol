@@ -155,12 +155,16 @@ contract CBOND is ERC721, Ownable {
     //amount of sync provided to user is initially deposited amount plus interest
     uint256 syncRetrieved=syncRewardedOnMaturity[tokenId];
 
+    //amount of sync user initially deposited without interest
+    uint256 syncOrginalAmount=syncAmountById[tokenId];
+
     //provide user with their Sync tokens and their initially deposited liquidity tokens
     uint256 beforeMint=syncToken.balanceOf(msg.sender);
     syncToken._mint(msg.sender,syncRetrieved);
     require(IERC20(lAddrById[tokenId]).transfer(msg.sender,lTokenAmountById[tokenId]),"transfer must succeed");
 
     //update read only counter
+    totalSYNCLocked=totalSYNCLocked.sub(syncOrginalAmount); //Added by CG to reduce the amount of SYNC locked
     totalCBONDSCashedout=totalCBONDSCashedout.add(1);
     emit Matured(lAddrById[tokenId],syncRetrieved,lTokenAmountById[tokenId],tokenId);
 
