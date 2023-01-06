@@ -9,7 +9,7 @@ import "./openzeppelin/utils/Strings.sol";
 // import "./IOracle.sol";
 import "./Sync.sol";
 import "./AddressStrings.sol";
-import "./SquareRoot.sol";
+// import "./SquareRoot.sol";
 
 contract CBOND is ERC721, Ownable {
   using SafeMath for uint256;
@@ -26,9 +26,6 @@ contract CBOND is ERC721, Ownable {
   mapping(address => uint256) public totalLiquidityLockedByPair;//Total amount of tokens locked in Cbonds of the given liquidity token.
 
   //values contained in individual CBONDs, by token id
-  mapping(uint256 => uint256) public lTokenPriceById;//The relative price of the liquidity token at the time the given Cbond was created.
-  mapping(uint256 => uint256) public lTokenAmountById;//The amount of liquidity tokens initially deposited into the given Cbond.
-  mapping(uint256 => uint256) public syncPriceById;//The relative price of Sync at the time the given Cbond was created.
   mapping(uint256 => uint256) public syncAmountById;//The amount of Sync initially deposited into the given Cbond.
   mapping(uint256 => uint256) public syncInterestById;//The amount of Sync interest on the initially deposited Sync awarded by the given Cbond.
   mapping(uint256 => uint256) public syncRewardedOnMaturity;//The amount of Sync returned to the user on maturation of the given Cbond.
@@ -38,7 +35,6 @@ contract CBOND is ERC721, Ownable {
   //constant and pseudo-constant (never changed after constructor) values
   uint256 constant public PERCENTAGE_PRECISION=10000;//Divide percentages by this to get the real multiplier.
   uint256 constant public INCENTIVE_MAX_PERCENT=50;//0.5%, the maximum value the liquidity incentive rate can be.
-  uint256 constant public MAX_SYNC_GLOBAL=100000 * (10 ** 18);//Maximum Sync in a Cbond. Cbonds with higher amounts of Sync cannot be created.
   uint256 public STARTING_TIME=block.timestamp;//The time the contract was deployed.
   uint256 constant public BASE_INTEREST_RATE_START=400;//4%, starting value for base interest rate.
   uint256 constant public MINIMUM_BASE_INTEREST_RATE=10;//0.1%, the minimum value base interest rate can be.
@@ -64,16 +60,15 @@ contract CBOND is ERC721, Ownable {
   mapping(uint256 => uint256) public cbondsMaturingByDay;//Mapping of days to number of cbonds maturing that day.
 
   //admin adjustable values
-  mapping(address => bool) public tokenAccepted;//Whether a given liquidity token has been approved for use by admins. Cbonds can only be created using tokens listed here.
-  uint256 public syncMinimum = 25 * (10 ** 18);//Cbonds cannot be created unless at least this amount of Sync is being included in them.
+  mapping(address => bool) public tokenAccepted; //Whether a given liquidity token has been approved for use by admins. Cbonds can only be created using tokens listed here.
+  uint256 public syncMinimum = 25 * (10 ** 18); //Cbonds cannot be created unless at least this amount of Sync is being included in them.
+  uint256 public syncMaximum = 100000 * (10 ** 18); //Maximum Sync in a Cbond. Cbonds with higher amounts of Sync cannot be created.
   bool public luckyEnabled = true;//Whether it is possible to create Lucky Cbonds
 
   //external contracts
-  Oracle public priceChecker;//Used to determine the ratio in price between Sync and a given liquidity token. The value returned should not significantly affect user incentives and does not need to be guaranteed not to be exploitable by the user. Contract can be replaced by admin.
   Sync syncToken;//The Sync token contract. Sync is contained in every Cbond and is minted to provide interest on Cbonds.
 
   constructor(Oracle o,Sync s) public Ownable() ERC721("CBOND","CBOND"){
-    priceChecker=o;
     syncToken=s;
     syncSupplyByDay[0]=syncToken.totalSupply();
     interestRateByDay[0]=BASE_INTEREST_RATE_START;
@@ -91,36 +86,21 @@ contract CBOND is ERC721, Ownable {
     _setBaseURI(baseURI_);
   }
 
-  /*
-    Admin function to set liquidity tokens which may be used to create Cbonds.
-  */
-  function setLiquidityTokenAccepted(address token,bool accepted) external onlyOwner{
-    tokenAccepted[token]=accepted;
-  }
 
   /*
-    Admin function to set liquidity tokens which may be used to create Cbonds.
-  */
-  function setLiquidityTokenAcceptedMulti(address[] calldata tokens,bool accepted) external onlyOwner{
-    for(uint256 i=0;i<tokens.length;i++){
-      tokenAccepted[tokens[i]]=accepted;
-    }
-  }
-
-  /*
-    Admin function to reduce the minimum amount of Sync that can be used to create a Cbond.
+    Admin function to SET the minimum amount of Sync that can be used to create a Cbond.
   */
   function setSyncMinimum(uint256 newMinimum) public onlyOwner{
-    require(newMinimum<syncMinimum,"increasing minimum sync required is not permitted");
     syncMinimum=newMinimum;
   }
 
-  /*
-    Admin function to change the price oracle.
+   /*
+    Admin function to SET the Maximum amount of Sync that can be used to create a Cbond.
   */
-  function setPriceOracle(Oracle o) external onlyOwner{
-    priceChecker=o;
+  function setSyncMaximum(uint256 newMaximum) public onlyOwner{
+    syncMaximum=newMaximum;
   }
+
 
   /*
     Admin function to toggle on/off the lucky bonus.
@@ -175,14 +155,14 @@ contract CBOND is ERC721, Ownable {
   /*
     Public function for creating a new Cbond.
   */
-  function createCBOND(address liquidityToken,uint256 amount,uint256 syncMaximum,uint256 secondsInTerm) external returns(uint256){
-    return _createCBOND(liquidityToken,amount,syncMaximum,secondsInTerm,msg.sender);
+  function createCBOND(address liquidityToken,uint256 amount,uint256 secondsInTerm) external returns(uint256){
+    return _createCBOND(liquidityToken,amount,secondsInTerm,msg.sender);
   }
 
   /*
     Function for creating a new Cbond. User specifies a liquidity token and an amount, this is transferred from their account to this contract, along with a corresponding amount of Sync (transaction reverts if this is greater than the user provided maximum at the time of execution). A permitted term length is also provided.
   */
-  function _createCBOND(address liquidityToken,uint256 amount,uint256 syncMaximum,uint256 secondsInTerm,address sender) private returns(uint256){
+  function _createCBOND(address liquidityToken,uint256 amount,uint256 secondsInTerm,address sender) private returns(uint256){
     require(tokenAccepted[liquidityToken],"liquidity token must be on the list of approved tokens");
 
     //record current Sync supply and liquidity token supply for the day if needed
@@ -194,9 +174,9 @@ contract CBOND is ERC721, Ownable {
     uint256 syncValue=priceChecker.syncValue();
     //Since syncRequired is the exact amount of Sync that will be transferred from the user, integer division truncations propagating to other values derived from this one is the correct behavior.
     uint256 syncRequired=liquidityValue.mul(amount).div(syncValue);
-    require(syncRequired>=syncMinimum,"input tokens too few, sync transferred must be above the minimum");
-    require(syncRequired<=syncMaximum,"price changed too much since transaction submitted");
-    require(syncRequired<=MAX_SYNC_GLOBAL,"CBOND amount too large");
+    require(syncRequired>=syncMinimum,"Stake size too small");
+    require(syncRequired<=syncMaximum,"Stake size too large");
+    // require(syncRequired<=MAX_SYNC_GLOBAL,"CBOND amount too large");
     syncToken.transferFrom(sender,address(this),syncRequired);
     require(IERC20(liquidityToken).transferFrom(sender,address(this),amount),"transfer must succeed");
 
