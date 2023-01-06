@@ -46,9 +46,6 @@ contract CBOND is ERC721, Ownable {
   uint256[] public LUCKY_EXTRAS=[500,1000];//Bonus interest awarded to user on creating lucky and extra lucky Cbonds.
   uint256 public YEAR_LENGTH=360 days;//Time length of approximately 1 year
   uint256[] public TERM_DURATIONS=[90 days,180 days,360 days,720 days,1080 days];//Possible term durations for Cbonds, index values corresponding to the following variables:
-  uint256[] public DURATION_MODIFIERS=[825,1650,3300,6600,10000];//The percentage values used as duration modifiers for the given term lengths.
-  uint256[] public DURATION_CALC_LOOPS=[0,0,3,7,11];//Number of loops for the duration rate formula approximation function, for the given term duration.
-  mapping(uint256 => uint256) public INDEX_BY_DURATION;//Mapping of term durations to index values, as relates to the above variables.
   uint256 public RISK_FACTOR = 5;//Constant used in duration rate calculation
 
   //Index variables for tracking
@@ -81,9 +78,6 @@ contract CBOND is ERC721, Ownable {
     syncSupplyByDay[0]=syncToken.totalSupply();
     interestRateByDay[0]=BASE_INTEREST_RATE_START;
     _setBaseURI("api.cbondnft.com");
-    for(uint256 i=0;i<TERM_DURATIONS.length;i++){
-      INDEX_BY_DURATION[TERM_DURATIONS[i]]=i;
-    }
   }
 
   /*
