@@ -11,7 +11,7 @@ import "./Sync.sol";
 import "./AddressStrings.sol";
 // import "./SquareRoot.sol";
 
-contract CBOND is ERC721, Ownable {
+contract POLYBOND is ERC721, Ownable {
   using SafeMath for uint256;
   using Strings for uint256;
   using AddressStrings for address;
@@ -29,7 +29,7 @@ contract CBOND is ERC721, Ownable {
   mapping(uint256 => uint256) public syncAmountById;//The amount of Sync initially deposited into the given Cbond.
   mapping(uint256 => uint256) public syncInterestById;//The amount of Sync interest on the initially deposited Sync awarded by the given Cbond.
   mapping(uint256 => uint256) public syncRewardedOnMaturity;//The amount of Sync returned to the user on maturation of the given Cbond.
-  mapping(uint256 => uint256) public timestampById;//The time the given Cbond was created.
+  mapping(uint256 => uint256) public timestampById;//The time the given PolyBond was created.
   mapping(uint256 => uint256) public termLengthById;//Length of term in seconds for the given Cbond.
 
   //constant and pseudo-constant (never changed after constructor) values
@@ -39,7 +39,7 @@ contract CBOND is ERC721, Ownable {
   uint256 constant public BASE_INTEREST_RATE_START=400;//4%, starting value for base interest rate.
   uint256 constant public MINIMUM_BASE_INTEREST_RATE=10;//0.1%, the minimum value base interest rate can be.
   uint256 constant public MAXIMUM_BASE_INTEREST_RATE=2000;//20%, the maximum value base interest rate can be.
-  uint256[] public LUCKY_EXTRAS=[500,1000];//Bonus interest awarded to user on creating lucky and extra lucky Cbonds.
+  uint256[] public LUCKY_EXTRAS=[100,500,1000];//Bonus interest awarded to user on creating lucky and extra lucky Cbonds.
   uint256 public YEAR_LENGTH=360 days;//Time length of approximately 1 year
   uint256[] public TERM_DURATIONS=[90 days,180 days,360 days,720 days,1080 days];//Possible term durations for Cbonds, index values corresponding to the following variables:
   uint256 public RISK_FACTOR = 5;//Constant used in duration rate calculation
@@ -144,7 +144,7 @@ contract CBOND is ERC721, Ownable {
     require(IERC20(lAddrById[tokenId]).transfer(msg.sender,lTokenAmountById[tokenId]),"transfer must succeed");
 
     //update read only counter
-    totalSYNCLocked=totalSYNCLocked.sub(syncOrginalAmount); //Added by CG to reduce the amount of SYNC locked
+    totalSYNCLocked=totalSYNCLocked.sub(syncOrginalAmount); // Reduce the amount of SYNC locked
     totalCBONDSCashedout=totalCBONDSCashedout.add(1);
     emit Matured(lAddrById[tokenId],syncRetrieved,lTokenAmountById[tokenId],tokenId);
 
@@ -155,8 +155,8 @@ contract CBOND is ERC721, Ownable {
   /*
     Public function for creating a new Cbond.
   */
-  function createCBOND(address liquidityToken,uint256 amount,uint256 secondsInTerm) external returns(uint256){
-    return _createCBOND(liquidityToken,amount,secondsInTerm,msg.sender);
+  function createCBOND(uint256 amount,uint256 secondsInTerm) external returns(uint256){
+    return _createCBOND(amount,secondsInTerm,msg.sender);
   }
 
   /*
@@ -346,12 +346,14 @@ contract CBOND is ERC721, Ownable {
   function getLuckyExtra(uint256 tokenId) public view returns(uint256){
     if(luckyEnabled){
      if(tokenId.mod(1000)==777){
-        return LUCKY_EXTRAS[1];
+        return LUCKY_EXTRAS[2];
       }
       if(tokenId.mod(100)==77){
+        return LUCKY_EXTRAS[1];
+      }
+      if(tokenId.mod(100)==7){
         return LUCKY_EXTRAS[0];
       }
-
     }
     return 0;
   }
