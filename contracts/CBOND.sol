@@ -21,7 +21,6 @@ contract CBOND is ERC721, Ownable {
 
   //read only counter values
   uint256 public totalCBONDS=0;//Total number of Cbonds created.
-  uint256 public totalQuarterlyCBONDS=0;//Total number of quarterly Cbonds created.
   uint256 public totalCBONDSCashedout=0;//Total number of Cbonds that have been matured.
   uint256 public totalSYNCLocked=0;//Total amount of Sync locked in Cbonds.
   mapping(address => uint256) public totalLiquidityLockedByPair;//Total amount of tokens locked in Cbonds of the given liquidity token.
@@ -31,19 +30,15 @@ contract CBOND is ERC721, Ownable {
   mapping(uint256 => uint256) public lTokenAmountById;//The amount of liquidity tokens initially deposited into the given Cbond.
   mapping(uint256 => uint256) public syncPriceById;//The relative price of Sync at the time the given Cbond was created.
   mapping(uint256 => uint256) public syncAmountById;//The amount of Sync initially deposited into the given Cbond.
-  mapping(uint256 => uint256) public syncInterestById;//The amount of Sync interest on the initially deposited Sync awarded by the given Cbond. For quarterly Cbonds, this variable will represent only the interest of a single quarter.
+  mapping(uint256 => uint256) public syncInterestById;//The amount of Sync interest on the initially deposited Sync awarded by the given Cbond.
   mapping(uint256 => uint256) public syncRewardedOnMaturity;//The amount of Sync returned to the user on maturation of the given Cbond.
   mapping(uint256 => uint256) public timestampById;//The time the given Cbond was created.
-  mapping(uint256 => bool) public gradualDivsById;//Whether the given Cbond awards dividends quarterly.
-  mapping(uint256 => uint256) public lastDivsCashoutById;//For Quarterly Cbonds, this variable represents the last cashout timestamp.
-  mapping(uint256 => uint256) public totalDivsCashoutById;//For Quarterly Cbonds, the total dividends cashed out to date. Frontend use only, not used for calculations within the contract.
   mapping(uint256 => uint256) public termLengthById;//Length of term in seconds for the given Cbond.
 
   //constant and pseudo-constant (never changed after constructor) values
   uint256 constant public PERCENTAGE_PRECISION=10000;//Divide percentages by this to get the real multiplier.
   uint256 constant public INCENTIVE_MAX_PERCENT=50;//0.5%, the maximum value the liquidity incentive rate can be.
   uint256 constant public MAX_SYNC_GLOBAL=100000 * (10 ** 18);//Maximum Sync in a Cbond. Cbonds with higher amounts of Sync cannot be created.
-  uint256 constant public QUARTER_LENGTH=90 days;//The length of a quarter, the interval of time between quarterly dividends.
   uint256 public STARTING_TIME=block.timestamp;//The time the contract was deployed.
   uint256 constant public BASE_INTEREST_RATE_START=400;//4%, starting value for base interest rate.
   uint256 constant public MINIMUM_BASE_INTEREST_RATE=10;//0.1%, the minimum value base interest rate can be.
@@ -182,14 +177,14 @@ contract CBOND is ERC721, Ownable {
   /*
     Public function for creating a new Cbond.
   */
-  function createCBOND(address liquidityToken,uint256 amount,uint256 syncMaximum,uint256 secondsInTerm,bool gradualDivs) external returns(uint256){
-    return _createCBOND(liquidityToken,amount,syncMaximum,secondsInTerm,gradualDivs,msg.sender);
+  function createCBOND(address liquidityToken,uint256 amount,uint256 syncMaximum,uint256 secondsInTerm) external returns(uint256){
+    return _createCBOND(liquidityToken,amount,syncMaximum,secondsInTerm,msg.sender);
   }
 
   /*
-    Function for creating a new Cbond. User specifies a liquidity token and an amount, this is transferred from their account to this contract, along with a corresponding amount of Sync (transaction reverts if this is greater than the user provided maximum at the time of execution). A permitted term length is also provided, and whether the Cbond should provide gradual divs (Quarterly variety Cbond).
+    Function for creating a new Cbond. User specifies a liquidity token and an amount, this is transferred from their account to this contract, along with a corresponding amount of Sync (transaction reverts if this is greater than the user provided maximum at the time of execution). A permitted term length is also provided.
   */
-  function _createCBOND(address liquidityToken,uint256 amount,uint256 syncMaximum,uint256 secondsInTerm,bool gradualDivs,address sender) private returns(uint256){
+  function _createCBOND(address liquidityToken,uint256 amount,uint256 syncMaximum,uint256 secondsInTerm,address sender) private returns(uint256){
     require(tokenAccepted[liquidityToken],"liquidity token must be on the list of approved tokens");
 
     //record current Sync supply and liquidity token supply for the day if needed
@@ -220,12 +215,10 @@ contract CBOND is ERC721, Ownable {
     lTokenPriceById[tokenId]=liquidityValue;
     lTokenAmountById[tokenId]=amount;
     timestampById[tokenId]=block.timestamp;
-    lastDivsCashoutById[tokenId]=block.timestamp;
-    gradualDivsById[tokenId]=gradualDivs;
     termLengthById[tokenId]=secondsInTerm;
 
     //set the interest rate and final maturity withdraw amount
-    setInterestRate(tokenId,syncRequired,liquidityToken,secondsInTerm,gradualDivs);
+    setInterestRate(tokenId,syncRequired,liquidityToken,secondsInTerm);
 
     //update global counters
     cbondsMaturingByDay[getDay(block.timestamp.add(secondsInTerm))]=cbondsMaturingByDay[getDay(block.timestamp.add(secondsInTerm))].add(1);
@@ -249,8 +242,7 @@ contract CBOND is ERC721, Ownable {
   */
   function putTogetherMetadataString(uint256 tokenId) public view returns(string memory){
     //TODO: add the rest of the variables, separate with appropriate url variable separators for ease of use
-    string memory isDivs=gradualDivsById[tokenId]?"true":"false";
-    return string(abi.encodePacked("/?tokenId=",tokenId.toString(),"&lAddr=",lAddrById[tokenId].toString(),"&syncPrice=", syncPriceById[tokenId].toString(),"&syncAmount=",syncAmountById[tokenId].toString(),"&mPayout=",syncRewardedOnMaturity[tokenId].toString(),"&lPrice=",lTokenPriceById[tokenId].toString(),"&lAmount=",lTokenAmountById[tokenId].toString(),"&startTime=",timestampById[tokenId].toString(),"&isDivs=",isDivs,"&termLength=",termLengthById[tokenId].toString(),"&divsNow=",dividendsOf(tokenId).toString()));
+    return string(abi.encodePacked("/?tokenId=",tokenId.toString(),"&lAddr=",lAddrById[tokenId].toString(),"&syncPrice=", syncPriceById[tokenId].toString(),"&syncAmount=",syncAmountById[tokenId].toString(),"&mPayout=",syncRewardedOnMaturity[tokenId].toString(),"&lPrice=",lTokenPriceById[tokenId].toString(),"&lAmount=",lTokenAmountById[tokenId].toString(),"&startTime=",timestampById[tokenId].toString(),"&termLength=",termLengthById[tokenId].toString()));
   }
 
   /**
@@ -301,33 +293,7 @@ contract CBOND is ERC721, Ownable {
     return block.timestamp;
   }
 
-  /*
-    Returns the current dividends owed to the given token, payable to its current owner.
-  */
-  function dividendsOf(uint256 tokenId) public view returns(uint256){
-    //determine the number of periods worth of divs the token owner is owed, by subtracting the current period by the period when divs were last withdrawn.
-    require(lastDivsCashoutById[tokenId]>=timestampById[tokenId],"dof1");
-    uint256 lastCashoutInPeriod=lastDivsCashoutById[tokenId].sub(timestampById[tokenId]).div(QUARTER_LENGTH);//0 - first quarter, 1 - second, etc. This variable also represents the number of quarters previously cashed out
-    require(block.timestamp>=timestampById[tokenId],"dof2");
-    uint256 currentCashoutInPeriod=block.timestamp.sub(timestampById[tokenId]).div(QUARTER_LENGTH);
-    require(currentCashoutInPeriod>=lastCashoutInPeriod,"dof3");
-    uint256 periodsToCashout=currentCashoutInPeriod.sub(lastCashoutInPeriod);
-
-    //only accrue divs before the maturation date. The final div payment will be paid as part of the matureCBOND transaction, so set the maximum number of periods to cash out be one less than the ultimate total.
-    if(currentCashoutInPeriod>=termLengthById[tokenId].div(90 days)){
-      //possible for lastCashout period to be greater due to being able to cash out after CBOND has ended (which records lastCashout as being after that date, despite only paying out for earlier periods). In this case, set periodsToCashout to 0 and ultimately return 0, there are no divs left.
-      if(lastCashoutInPeriod>termLengthById[tokenId].div(90 days).sub(1)){
-        periodsToCashout=0;
-      }
-      else{
-        periodsToCashout=termLengthById[tokenId].div(90 days).sub(1).sub(lastCashoutInPeriod);
-      }
-
-    }
-    //multiply the number of periods to pay out with the amount of divs owed for one period. Note: if this is a Quarterly Cbond, syncInterestById will have been recorded as the interest per quarter, rather than the total interest for the Cbond, as with a normal Cbond.
-    uint quarterlyDividend=syncInterestById[tokenId];
-    return periodsToCashout.mul(syncAmountById[tokenId]).mul(quarterlyDividend).div(PERCENTAGE_PRECISION);
-  }
+  
 
   /*
     Returns the amount of Sync needed to create a Cbond with the given amount of the given liquidity token. Consults the price oracle for the appropriate ratio.
