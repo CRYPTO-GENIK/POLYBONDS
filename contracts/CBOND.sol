@@ -6,7 +6,7 @@ import "./openzeppelin/math/SafeMath.sol";
 import "./openzeppelin/math/Math.sol";
 import "./openzeppelin/access/Ownable.sol";
 import "./openzeppelin/utils/Strings.sol";
-import "./IOracle.sol";
+// import "./IOracle.sol";
 import "./Sync.sol";
 import "./AddressStrings.sol";
 import "./SquareRoot.sol";
@@ -18,7 +18,6 @@ contract CBOND is ERC721, Ownable {
 
   event Created(address token,uint256 syncAmount,uint256 tokenAmount,uint256 syncPrice,uint256 tokenPrice,uint256 tokenId);
   event Matured(address token,uint256 syncReturned,uint256 tokenAmount,uint256 tokenId);
-  event DivsPaid(address token,uint256 syncReturned,uint256 tokenId);
 
   //read only counter values
   uint256 public totalCBONDS=0;//Total number of Cbonds created.
@@ -28,7 +27,6 @@ contract CBOND is ERC721, Ownable {
   mapping(address => uint256) public totalLiquidityLockedByPair;//Total amount of tokens locked in Cbonds of the given liquidity token.
 
   //values contained in individual CBONDs, by token id
-  mapping(uint256 => address) public lAddrById;//The address of the liquidity token used to create the given Cbond.
   mapping(uint256 => uint256) public lTokenPriceById;//The relative price of the liquidity token at the time the given Cbond was created.
   mapping(uint256 => uint256) public lTokenAmountById;//The amount of liquidity tokens initially deposited into the given Cbond.
   mapping(uint256 => uint256) public syncPriceById;//The relative price of Sync at the time the given Cbond was created.
@@ -152,29 +150,7 @@ contract CBOND is ERC721, Ownable {
     }
   }
 
-  /*
-    Retrieves available dividends for the given token. Dividends accrue every 3 months.
-  */
-  function cashOutDivs(uint256 tokenId) external{
-    require(msg.sender==ownerOf(tokenId),"only token owner can call this");
-    require(gradualDivsById[tokenId],"must be in quarterly dividends mode");
 
-    //record current Sync supply and liquidity token supply for the day if needed
-    recordSyncSupply();
-    recordTokenSupply(lAddrById[tokenId]);
-
-    //reward user with appropriate amount. If none is due it will provide an amount of 0 tokens.
-    uint256 divs=dividendsOf(tokenId);
-    syncToken._mint(msg.sender,divs);
-
-    //register the timestamp of this transaction so future div payouts can be accurately calculated
-    lastDivsCashoutById[tokenId]=block.timestamp;
-
-    //update read variables
-    totalDivsCashoutById[tokenId]=totalDivsCashoutById[tokenId].add(divs);
-
-    emit DivsPaid(lAddrById[tokenId],divs,tokenId);
-  }
 
   /*
     Returns liquidity tokens, mints Sync to pay back initial amount plus rewards.
@@ -363,15 +339,11 @@ contract CBOND is ERC721, Ownable {
   /*
     Set the sync rewarded on maturity and interest rate for the given CBOND
   */
-  function setInterestRate(uint256 tokenId,uint256 syncRequired,address liquidityToken,uint256 secondsInTerm,bool gradualDivs) private{
+  function setInterestRate(uint256 tokenId,uint256 syncRequired,address liquidityToken,uint256 secondsInTerm) private{
     (uint256 lastSupply,uint256 currentSupply,uint256 lastTSupply,uint256 currentTSupply,uint256 lastInterestRate)=getSuppliesNow(liquidityToken);
-    (uint256 interestRate,uint256 totalReturn)=getCbondTotalReturn(tokenId,syncRequired,liquidityToken,secondsInTerm,gradualDivs);
+    (uint256 interestRate,uint256 totalReturn)=getCbondTotalReturn(tokenId,syncRequired,liquidityToken,secondsInTerm);
     syncRewardedOnMaturity[tokenId]=totalReturn;
     syncInterestById[tokenId]=interestRate;
-    if(gradualDivs){
-      require(secondsInTerm>=TERM_DURATIONS[2],"dividend bearing CBONDs must be at least 1 year duration");
-      totalQuarterlyCBONDS=totalQuarterlyCBONDS.add(1);
-    }
   }
 
   /*
@@ -381,10 +353,10 @@ contract CBOND is ERC721, Ownable {
   /*
     Gets the amount of Sync for the given Cbond to return on maturity.
   */
-  function getCbondTotalReturn(uint256 tokenId,uint256 syncAmount,address liqAddr,uint256 duration,bool isDivs) public view returns(uint256 interestRate,uint256 totalReturn){
+  function getCbondTotalReturn(uint256 tokenId,uint256 syncAmount,address liqAddr,uint256 duration) public view returns(uint256 interestRate,uint256 totalReturn){
     // This is an integer math translation of P*(1+I) where P is principle I is interest rate. The new, equivalent formula is P*(c+I*c)/c where c is a constant of amount PERCENTAGE_PRECISION.
 
-    interestRate=getCbondInterestRateNow(liqAddr, duration,getLuckyExtra(tokenId),isDivs);
+    interestRate=getCbondInterestRateNow(liqAddr, duration,getLuckyExtra(tokenId));
     totalReturn = syncAmount.mul(PERCENTAGE_PRECISION.add(interestRate)).div(PERCENTAGE_PRECISION);
   }
 
@@ -394,8 +366,7 @@ contract CBOND is ERC721, Ownable {
   function getCbondInterestRateNow(
     address liqAddr,
     uint256 duration,
-    uint256 luckyExtra,
-    bool quarterly) public view returns(uint256){
+    uint256 luckyExtra) public view returns(uint256){
 
     return getCbondInterestRate(
       duration,
@@ -404,8 +375,7 @@ contract CBOND is ERC721, Ownable {
       syncSupplyByDay[lastDaySyncSupplyUpdated],
       syncSupplyByDay[getDay(block.timestamp)],
       interestRateByDay[lastDaySyncSupplyUpdated],
-      luckyExtra,
-      quarterly);
+      luckyExtra);
   }
 
   /*
@@ -418,22 +388,12 @@ contract CBOND is ERC721, Ownable {
     uint256 syncTotalLast,
     uint256 syncTotalCurrent,
     uint256 lastBaseInterestRate,
-    uint256 luckyExtra,
-    bool quarterly) public view returns(uint256){
+    uint256 luckyExtra) public view returns(uint256){
 
     uint256 liquidityPairIncentiveRate=getLiquidityPairIncentiveRate(liqTotalCurrent,liqTotalLast);
     uint256 baseInterestRate=getBaseInterestRate(lastBaseInterestRate,syncTotalCurrent,syncTotalLast);
-    if(!quarterly){
-      return getDurationRate(duration,baseInterestRate.add(liquidityPairIncentiveRate).add(luckyExtra));
-    }
-    else{
-      uint numYears=duration.div(YEAR_LENGTH);
-      require(numYears>0,"invalid duration");//Quarterly Cbonds must have a duration 1 year or longer.
-      uint numQuarters=duration.div(QUARTER_LENGTH);
-      uint termModifier=RISK_FACTOR.mul(numYears.mul(4).sub(1));
-      //Interest rate is the sum of base interest rate, liquidity incentive rate, and risk/term based modifier. Because this is the Quarterly Cbond rate, we also divide by the number of quarters in the Cbond, to set the recorded rate to the amount withdrawable per quarter.
-      return baseInterestRate.add(liquidityPairIncentiveRate).add(luckyExtra).add(termModifier);
-    }
+    return getDurationRate(duration,baseInterestRate.add(liquidityPairIncentiveRate).add(luckyExtra));
+    
   }
 
   /*
@@ -441,12 +401,13 @@ contract CBOND is ERC721, Ownable {
   */
   function getLuckyExtra(uint256 tokenId) public view returns(uint256){
     if(luckyEnabled){
+     if(tokenId.mod(1000)==777){
+        return LUCKY_EXTRAS[1];
+      }
       if(tokenId.mod(100)==77){
         return LUCKY_EXTRAS[0];
       }
-      if(tokenId.mod(1000)==777){
-        return LUCKY_EXTRAS[1];
-      }
+
     }
     return 0;
   }
@@ -491,16 +452,7 @@ contract CBOND is ERC721, Ownable {
         }
     }
 
-  /*
-    Returns the liquidity pair incentive rate. To use, multiply by a value then divide result by PERCENTAGE_PRECISION
-  */
-  function getLiquidityPairIncentiveRate(uint256 totalToday,uint256 totalYesterday) public view returns(uint256){
-    //instead of reverting due to division by zero, if tokens in this contract go to zero give the max bonus
-    if(totalToday==0){
-      return INCENTIVE_MAX_PERCENT;
-    }
-    return Math.min(INCENTIVE_MAX_PERCENT,INCENTIVE_MAX_PERCENT.mul(totalYesterday).div(totalToday));
-  }
+  
 
   /*
     Returns the base interest rate, derived from the previous day interest rate, the current Sync total supply, and the previous day Sync total supply.
@@ -512,9 +464,9 @@ contract CBOND is ERC721, Ownable {
   /*
     Returns the interest rate a Cbond with the given parameters would end up with if it were created.
   */
-  function getCbondInterestRateIfUpdated(address liqAddr,uint256 duration,uint256 luckyExtra,bool quarterly) public view returns(uint256){
+  function getCbondInterestRateIfUpdated(address liqAddr,uint256 duration,uint256 luckyExtra) public view returns(uint256){
     (uint256 lastSupply,uint256 currentSupply,uint256 lastTSupply,uint256 currentTSupply,uint256 lastInterestRate)=getSuppliesIfUpdated(liqAddr);
-    return getCbondInterestRate(duration,lastTSupply,currentTSupply,lastSupply,currentSupply,lastInterestRate,luckyExtra,quarterly);
+    return getCbondInterestRate(duration,lastTSupply,currentTSupply,lastSupply,currentSupply,lastInterestRate,luckyExtra);
   }
 
   /*
