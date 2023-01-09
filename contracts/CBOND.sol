@@ -16,6 +16,7 @@ contract POLYBOND is ERC721, Ownable {
 
   event Created(uint256 syncAmount,uint256 syncPrice,uint256 tokenPrice,uint256 tokenId);
   event Matured(uint256 syncReturned,uint256 tokenId);
+  event Penalized(uint256 syncOrginalAmount,uint256 reducedAmount,uint256 tokenId);
 
   //read only counter values
   uint256 public totalPOLYBONDS=0;                                               //Total number of Cbonds created.
@@ -103,9 +104,9 @@ contract POLYBOND is ERC721, Ownable {
   }
 
   /*
-    Admin function for updating the daily Sync total supply and token supply for various tokens, for use in case of low activity.
+    Admin function for updating the daily Sync total supply for use in case of low activity.
   */
-  function recordSyncAndTokens(address[] calldata tokens) external onlyOwner{
+  function recordSync() external onlyOwner{
     recordSyncSupply();
   }
 
@@ -116,6 +117,8 @@ contract POLYBOND is ERC721, Ownable {
   */
   function matureCBOND(uint256 tokenId) public{
     require(msg.sender==ownerOf(tokenId),"only token owner can call this");
+
+    // This Require Could be Turned into a Fee for Early Withdrawl Penalty but extreme care must be taken +CG
     require(block.timestamp>termLengthById[tokenId].add(timestampById[tokenId]),"cbond term not yet completed");
 
     //record current Sync supply
@@ -139,6 +142,39 @@ contract POLYBOND is ERC721, Ownable {
     //burn the nft
     _burn(tokenId);
   }
+
+/*
+    Return principle minus a penalty.
+  */
+  function penaltyWithdrawal(uint256 tokenId) public{
+    require(msg.sender==ownerOf(tokenId),"only token owner can call this");
+    
+    // Only Executable if the maturity is not met.
+    if (block.timestamp>termLengthById[tokenId].add(timestampById[tokenId])) {
+
+      //record current Sync supply
+      recordSyncSupply();
+
+      //amount of sync user initially deposited without interest
+      uint256 syncOrginalAmount=syncAmountById[tokenId];
+
+      // Multiply the amount by 0.8 to subtract 20%
+      uint reducedAmount = syncOrginalAmount * 0.8;
+
+      //provide user with their Sync tokens 
+      uint256 beforeMint=syncToken.balanceOf(msg.sender);
+      syncToken._mint(msg.sender,reducedAmount);
+
+      //update read only counter
+      totalSYNCLocked=totalSYNCLocked.sub(reducedAmount); // Reduce the amount of SYNC locked
+      totalPOLYBONDSCashedout=totalPOLYBONDSCashedout.add(1);
+      emit Penalized(syncOrginalAmount,reducedAmount,tokenId);  
+
+      //burn the nft
+      _burn(tokenId);
+    }
+  }
+
 
   /*
     Public function for creating a new Cbond.
