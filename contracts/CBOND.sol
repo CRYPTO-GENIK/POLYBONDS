@@ -18,8 +18,8 @@ contract POLYBOND is ERC721, Ownable {
   event Matured(uint256 syncReturned,uint256 tokenId);
 
   //read only counter values
-  uint256 public totalCBONDS=0;                                               //Total number of Cbonds created.
-  uint256 public totalCBONDSCashedout=0;                                      //Total number of Cbonds that have been matured.
+  uint256 public totalPOLYBONDS=0;                                               //Total number of Cbonds created.
+  uint256 public totalPOLYBONDSCashedout=0;                                      //Total number of Cbonds that have been matured.
   uint256 public totalSYNCLocked=0;                                           //Total amount of Sync locked in Cbonds.
 
   //values contained in individual CBONDs, by token id
@@ -133,7 +133,7 @@ contract POLYBOND is ERC721, Ownable {
 
     //update read only counter
     totalSYNCLocked=totalSYNCLocked.sub(syncOrginalAmount); // Reduce the amount of SYNC locked
-    totalCBONDSCashedout=totalCBONDSCashedout.add(1);
+    totalPOLYBONDSCashedout=totalPOLYBONDSCashedout.add(1);
     emit Matured(syncRetrieved,tokenId);
 
     //burn the nft
@@ -148,7 +148,8 @@ contract POLYBOND is ERC721, Ownable {
   }
 
   /*
-    Function for creating a new Cbond. User specifies a liquidity token and an amount, this is transferred from their account to this contract, along with a corresponding amount of Sync (transaction reverts if this is greater than the user provided maximum at the time of execution). A permitted term length is also provided.
+    Function for creating a new Cbond. User specifies an amount of SYNC, this is transferred from their account to this contract (transaction reverts if this is greater than the user provided maximum at the time of execution). 
+    A permitted term length is also provided.
   */
   function _createCBOND(uint256 amount,uint256 secondsInTerm,address sender) private returns(uint256){
 
@@ -167,11 +168,8 @@ contract POLYBOND is ERC721, Ownable {
     uint256 tokenId=_getNextTokenId();
 
     //set all nft variables
-    lAddrById[tokenId]=liquidityToken;
     syncPriceById[tokenId]=syncValue;
     syncAmountById[tokenId]=syncRequired;
-    lTokenPriceById[tokenId]=liquidityValue;
-    lTokenAmountById[tokenId]=amount;
     timestampById[tokenId]=block.timestamp;
     termLengthById[tokenId]=secondsInTerm;
 
@@ -182,7 +180,7 @@ contract POLYBOND is ERC721, Ownable {
     cbondsMaturingByDay[getDay(block.timestamp.add(secondsInTerm))]=cbondsMaturingByDay[getDay(block.timestamp.add(secondsInTerm))].add(1);
     cbondsHeldByUser[sender][cbondsHeldByUserCursor[sender]]=tokenId;
     cbondsHeldByUserCursor[sender]=cbondsHeldByUserCursor[sender].add(1);
-    totalCBONDS=totalCBONDS.add(1);
+    totalPOLYBONDS=totalPOLYBONDS.add(1);
     totalSYNCLocked=totalSYNCLocked.add(syncRequired);
     totalLiquidityLockedByPair[liquidityToken]=totalLiquidityLockedByPair[liquidityToken].add(amount);
 
@@ -318,7 +316,7 @@ contract POLYBOND is ERC721, Ownable {
       if(tokenId.mod(100)==77){
         return LUCKY_EXTRAS[1];
       }
-      if(tokenId.mod(100)==7){
+      if(tokenId.mod(10)==7){
         return LUCKY_EXTRAS[0];
       }
     }
