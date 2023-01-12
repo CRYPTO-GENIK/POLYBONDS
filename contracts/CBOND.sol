@@ -435,7 +435,7 @@ contract POLYBOND is ERC721, Ownable {
   function getSuppliesIfUpdated() public view returns(uint256 lastSupply,uint256 currentSupply,uint256 lastInterestRate){
     uint256 day=getDay(block.timestamp);
     if(syncSupplyByDay[day]==0){
-      currentSupply=syncToken.totalSupply();
+      currentSupply=syncToken.totalSupply().sub(totalSYNCLocked); //Now Subtracts Locked SYNC from the Total Supply since we no longer burn SYNC
       lastSupply=syncSupplyByDay[currentDaySyncSupplyUpdated];
       //TODO: interest rate
       lastInterestRate=interestRateByDay[currentDaySyncSupplyUpdated];
@@ -453,7 +453,7 @@ contract POLYBOND is ERC721, Ownable {
   function recordSyncSupply() public{
     if(syncSupplyByDay[getDay(block.timestamp)]==0){
       uint256 day=getDay(block.timestamp);
-      syncSupplyByDay[day]=syncToken.totalSupply();
+      syncSupplyByDay[day]=syncToken.totalSupply().sub(totalSYNCLocked);  //Now Subtracts Locked SYNC from the Total Supply since we no longer burn SYNC
       lastDaySyncSupplyUpdated=currentDaySyncSupplyUpdated;
       currentDaySyncSupplyUpdated=day;
 
