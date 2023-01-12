@@ -14,7 +14,7 @@ contract POLYBOND is ERC721, Ownable {
   using Strings for uint256;
   using AddressStrings for address;
 
-  event Created(uint256 syncAmount,uint256 syncPrice,uint256 tokenPrice,uint256 tokenId);
+  event Created(uint256 syncAmount,uint256 tokenId);
   event Matured(uint256 syncReturned,uint256 tokenId);
   event Penalized(uint256 syncOrginalAmount,uint256 reducedAmount,uint256 tokenId);
 
@@ -54,10 +54,10 @@ contract POLYBOND is ERC721, Ownable {
   mapping(uint256 => uint256) public cbondsMaturingByDay;                     //Mapping of days to number of cbonds maturing that day.
 
   //admin adjustable values
-  mapping(address => bool) public tokenAccepted;                              //Whether a given liquidity token has been approved for use by admins. Cbonds can only be created using tokens listed here.
   uint256 public syncMinimum = 25 * (10 ** 18);                               //Cbonds cannot be created unless at least this amount of Sync is being included in them.
   uint256 public syncMaximum = 100000 * (10 ** 18);                           //Maximum Sync in a Cbond. Cbonds with higher amounts of Sync cannot be created.
   bool public luckyEnabled = true;                                            //Whether it is possible to create Lucky Cbonds
+  address syncTreasury = 0x1264EB4ad33ceF667C0fe2A84150b6a98fF4caf7;          //Set to Treasury Address
 
   //external contracts
   Sync syncToken;//The Sync token contract. Sync is contained in every Cbond and is minted to provide interest on Cbonds.
@@ -72,6 +72,14 @@ contract POLYBOND is ERC721, Ownable {
   /*
     Admin functionsonlyOwner
   */
+
+  /*
+    Admin function to set liquidity tokens which may be used to create Cbonds.
+  */
+  function setTreasuryAddress(address treasury) external onlyOwner{
+    syncTreasury=treasury;
+  }
+
 
   /*
     Admin function to set the base URI for metadata access.
@@ -117,30 +125,28 @@ contract POLYBOND is ERC721, Ownable {
   */
   function matureCBOND(uint256 tokenId) public{
     require(msg.sender==ownerOf(tokenId),"only token owner can call this");
+    require(block.timestamp>termLengthById[tokenId].add(timestampById[tokenId]),"Stake term not yet complete");
 
-    // This Require Could be Turned into a Fee for Early Withdrawl Penalty but extreme care must be taken +CG
-    require(block.timestamp>termLengthById[tokenId].add(timestampById[tokenId]),"cbond term not yet completed");
+    //record current SYNC supply
+      recordSyncSupply();
 
-    //record current Sync supply
-    recordSyncSupply();
+    // Amount of SYNC provided to user is initially deposited amount plus interest
+      uint256 syncRetrieved=syncRewardedOnMaturity[tokenId];
 
-    //amount of sync provided to user is initially deposited amount plus interest
-    uint256 syncRetrieved=syncRewardedOnMaturity[tokenId];
+    // Amount of SYNC user initially deposited without interest
+      uint256 syncOrginalAmount=syncAmountById[tokenId];
 
-    //amount of sync user initially deposited without interest
-    uint256 syncOrginalAmount=syncAmountById[tokenId];
+    // Return Sync tokens and Mint the interest directly to their account
+      require(syncToken.transferFrom(sender,msg.sender,syncOrginalAmount),"transfer must succeed"); 
+      syncToken._mint(msg.sender,syncRetrieved - syncOrginalAmount);
 
-    //provide user with their Sync tokens 
-    uint256 beforeMint=syncToken.balanceOf(msg.sender);
-    syncToken._mint(msg.sender,syncRetrieved);
-
-    //update read only counter
-    totalSYNCLocked=totalSYNCLocked.sub(syncOrginalAmount); // Reduce the amount of SYNC locked
-    totalPOLYBONDSCashedout=totalPOLYBONDSCashedout.add(1);
-    emit Matured(syncRetrieved,tokenId);
+    // Update read only counters
+      totalSYNCLocked=totalSYNCLocked.sub(syncOrginalAmount); // Reduce the amount of SYNC locked (Only the orginal amount was locked)
+      totalPOLYBONDSCashedout=totalPOLYBONDSCashedout.add(1);
+      emit Matured(syncRetrieved,tokenId);
 
     //burn the nft
-    _burn(tokenId);
+      _burn(tokenId);
   }
 
 /*
@@ -160,10 +166,11 @@ contract POLYBOND is ERC721, Ownable {
 
       // Multiply the amount by 0.8 to subtract 20%
       uint reducedAmount = syncOrginalAmount * 0.8;
+      unit remainder = syncOrginalAmount - reducedAmount;
 
-      //provide user with their Sync tokens 
-      uint256 beforeMint=syncToken.balanceOf(msg.sender);
-      syncToken._mint(msg.sender,reducedAmount);
+      // Return Tokens to user and send the Fee to Treasury
+      require(syncToken.transferFrom(sender,msg.sender,reducedAmount),"transfer must succeed"); 
+      require(syncToken.transferFrom(sender,syncTreasury,remainder),"transfer must succeed"); 
 
       //update read only counter
       totalSYNCLocked=totalSYNCLocked.sub(reducedAmount); // Reduce the amount of SYNC locked
@@ -187,45 +194,42 @@ contract POLYBOND is ERC721, Ownable {
     Function for creating a new Cbond. User specifies an amount of SYNC, this is transferred from their account to this contract (transaction reverts if this is greater than the user provided maximum at the time of execution). 
     A permitted term length is also provided.
   */
-  function _createCBOND(uint256 amount,uint256 secondsInTerm,address sender) private returns(uint256){
+  function _createCBOND(uint256 syncAmount,uint256 secondsInTerm,address sender) private returns(uint256){
 
     //record current Sync supply 
     recordSyncSupply();
 
-    require(syncRequired>=syncMinimum,"Stake size too small");
-    require(syncRequired<=syncMaximum,"Stake size too large");
-    // require(syncRequired<=MAX_SYNC_GLOBAL,"CBOND amount too large");
-    syncToken.transferFrom(sender,address(this),syncRequired);
+    // Ensure it Passes Creation Requirements
+    require(syncAmount>=syncMinimum,"Stake size too small");
+    require(syncAmount<=syncMaximum,"Stake size too large");
 
-    //burn sync tokens provided
-    syncToken.burn(syncRequired);
+    // Recieve Tokens for Stake
+    require(syncToken.transferFrom(sender,address(this),syncAmount),"transfer must succeed");
 
-    //get the token id of the new NFT
+    // Get the token id for the new NFT
     uint256 tokenId=_getNextTokenId();
 
-    //set all nft variables
-    syncPriceById[tokenId]=syncValue;
-    syncAmountById[tokenId]=syncRequired;
+    // Set all NFT variables
+    syncAmountById[tokenId]=syncAmount;
     timestampById[tokenId]=block.timestamp;
     termLengthById[tokenId]=secondsInTerm;
 
-    //set the interest rate and final maturity withdraw amount
-    setInterestRate(tokenId,syncRequired,liquidityToken,secondsInTerm);
+    // Set the interest rate and final maturity withdraw amount
+    setInterestRate(tokenId,syncAmount,secondsInTerm);
 
     //update global counters
     cbondsMaturingByDay[getDay(block.timestamp.add(secondsInTerm))]=cbondsMaturingByDay[getDay(block.timestamp.add(secondsInTerm))].add(1);
     cbondsHeldByUser[sender][cbondsHeldByUserCursor[sender]]=tokenId;
     cbondsHeldByUserCursor[sender]=cbondsHeldByUserCursor[sender].add(1);
     totalPOLYBONDS=totalPOLYBONDS.add(1);
-    totalSYNCLocked=totalSYNCLocked.add(syncRequired);
-    totalLiquidityLockedByPair[liquidityToken]=totalLiquidityLockedByPair[liquidityToken].add(amount);
+    totalSYNCLocked=totalSYNCLocked.add(syncAmount); // **NOTICE** Not sure if we need this since we should be able to see how much the Contract holds
 
-    //create NFT
+    //Create NFT
     _safeMint(sender,tokenId);
     _incrementTokenId();
 
-    //submit event
-     emit Created(liquidityToken,syncRequired,amount,syncValue,liquidityValue,tokenId);
+    //Fire Event
+     emit Created(syncAmount,secondsInTerm,tokenId);
      return tokenId;
   }
 
@@ -234,7 +238,7 @@ contract POLYBOND is ERC721, Ownable {
   */
   function putTogetherMetadataString(uint256 tokenId) public view returns(string memory){
     //TODO: add the rest of the variables, separate with appropriate url variable separators for ease of use
-    return string(abi.encodePacked("/?tokenId=",tokenId.toString(),"&syncPrice=", syncPriceById[tokenId].toString(),"&syncAmount=",syncAmountById[tokenId].toString(),"&mPayout=",syncRewardedOnMaturity[tokenId].toString(),"&startTime=",timestampById[tokenId].toString(),"&termLength=",termLengthById[tokenId].toString()));
+    return string(abi.encodePacked("/?tokenId=",tokenId.toString(),"&syncAmount=",syncAmountById[tokenId].toString(),"&mPayout=",syncRewardedOnMaturity[tokenId].toString(),"&startTime=",timestampById[tokenId].toString(),"&termLength=",termLengthById[tokenId].toString()));
   }
 
   /**
@@ -290,9 +294,9 @@ contract POLYBOND is ERC721, Ownable {
   /*
     Set the sync rewarded on maturity and interest rate for the given CBOND
   */
-  function setInterestRate(uint256 syncRequired,uint256 secondsInTerm) private{
-    (uint256 lastSupply,uint256 currentSupply,uint256 lastTSupply,uint256 currentTSupply,uint256 lastInterestRate)=getSuppliesNow(liquidityToken);
-    (uint256 interestRate,uint256 totalReturn)=getCbondTotalReturn(syncRequired,liquidityToken,secondsInTerm);
+  function setInterestRate(uint256 syncAmount,uint256 secondsInTerm) private{
+    (uint256 lastSupply,uint256 currentSupply,uint256 lastInterestRate)=getSuppliesNow();
+    (uint256 interestRate,uint256 totalReturn)=getCbondTotalReturn(syncAmount,secondsInTerm);
     syncRewardedOnMaturity[tokenId]=totalReturn;
     syncInterestById[tokenId]=interestRate;
   }
@@ -304,7 +308,7 @@ contract POLYBOND is ERC721, Ownable {
   /*
     Gets the amount of Sync for the given Cbond to return on maturity.
   */
-  function getCbondTotalReturn(uint256 tokenId,uint256 syncAmount,address liqAddr,uint256 duration) public view returns(uint256 interestRate,uint256 totalReturn){
+  function getCbondTotalReturn(uint256 tokenId,uint256 syncAmount,uint256 duration) public view returns(uint256 interestRate,uint256 totalReturn){
     // This is an integer math translation of P*(1+I) where P is principle I is interest rate. The new, equivalent formula is P*(c+I*c)/c where c is a constant of amount PERCENTAGE_PRECISION.
 
     interestRate=getCbondInterestRateNow(duration,getLuckyExtra(tokenId));
@@ -411,15 +415,15 @@ contract POLYBOND is ERC721, Ownable {
   /*
     Returns the interest rate a Cbond with the given parameters would end up with if it were created.
   */
-  function getCbondInterestRateIfUpdated(address liqAddr,uint256 duration,uint256 luckyExtra) public view returns(uint256){
-    (uint256 lastSupply,uint256 currentSupply,uint256 lastInterestRate)=getSuppliesIfUpdated(liqAddr);
+  function getCbondInterestRateIfUpdated(uint256 duration,uint256 luckyExtra) public view returns(uint256){
+    (uint256 lastSupply,uint256 currentSupply,uint256 lastInterestRate)=getSuppliesIfUpdated();
     return getCbondInterestRate(duration,lastSupply,currentSupply,lastInterestRate,luckyExtra);
   }
 
   /*
     Convenience function for frontend use which returns current and previous recorded Sync total supply, and tokens held for the provided token.
   */
-  function getSuppliesNow(address tokenAddr) public view returns(uint256 lastSupply,uint256 currentSupply,uint256 lastInterestRate){
+  function getSuppliesNow() public view returns(uint256 lastSupply,uint256 currentSupply,uint256 lastInterestRate){
     currentSupply=syncSupplyByDay[currentDaySyncSupplyUpdated];
     lastSupply=syncSupplyByDay[lastDaySyncSupplyUpdated];
     lastInterestRate=interestRateByDay[lastDaySyncSupplyUpdated];
@@ -428,7 +432,7 @@ contract POLYBOND is ERC721, Ownable {
   /*
     Gets what the Sync token current and last supplies would become, if updated now. Intended for frontend use.
   */
-  function getSuppliesIfUpdated(address tokenAddr) public view returns(uint256 lastSupply,uint256 currentSupply,uint256 lastInterestRate){
+  function getSuppliesIfUpdated() public view returns(uint256 lastSupply,uint256 currentSupply,uint256 lastInterestRate){
     uint256 day=getDay(block.timestamp);
     if(syncSupplyByDay[day]==0){
       currentSupply=syncToken.totalSupply();
