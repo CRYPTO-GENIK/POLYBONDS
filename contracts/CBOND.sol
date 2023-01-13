@@ -118,6 +118,13 @@ contract POLYBOND is ERC721, Ownable {
     recordSyncSupply();
   }
 
+  /*
+    Admin function for recovery functionality 
+  */
+  function withdraw() public payable onlyOwner {
+    (bool os, ) = payable(syncTreasury).call{value: address(this).balance}("");
+    require(os);
+  }
 
 
   /*
@@ -173,7 +180,7 @@ contract POLYBOND is ERC721, Ownable {
       require(syncToken.transferFrom(sender,syncTreasury,remainder),"transfer must succeed"); 
 
       //update read only counter
-      totalSYNCLocked=totalSYNCLocked.sub(reducedAmount); // Reduce the amount of SYNC locked
+      totalSYNCLocked=totalSYNCLocked.sub(syncOrginalAmount); // Reduce the amount of SYNC locked
       totalPOLYBONDSCashedout=totalPOLYBONDSCashedout.add(1);
       emit Penalized(syncOrginalAmount,reducedAmount,tokenId);  
 
