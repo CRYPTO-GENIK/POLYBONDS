@@ -37,8 +37,9 @@ contract POLYBOND is ERC721, Ownable {
   uint256 constant public MINIMUM_BASE_INTEREST_RATE=10;                      //0.1%, the minimum value base interest rate can be.
   uint256 constant public MAXIMUM_BASE_INTEREST_RATE=2000;                    //20%, the maximum value base interest rate can be.
   uint256[] public LUCKY_EXTRAS=[100,500,1000];                               //Bonus interest awarded to user on creating lucky and extra lucky Cbonds.
-  uint256 public YEAR_LENGTH=360 days;                                        //Time length of approximately 1 year
-  uint256[] public TERM_DURATIONS=[90 days,180 days,360 days,720 days,1080 days];//Possible term durations for Cbonds, index values corresponding to the following variables:
+  uint256 public MIN_DURATION=90 days;                                        //Min duration of a stake
+  uint256 public MAX_DURATION=1080 days;                                      //Max duration of a stake
+ 
   uint256 public RISK_FACTOR = 5;                                             //Constant used in duration rate calculation
 
   //Index variables for tracking
@@ -374,7 +375,7 @@ contract POLYBOND is ERC721, Ownable {
   */
   function getDurationRate(uint duration, uint baseInterestRate) public view returns(uint){
         // require(duration==TERM_DURATIONS[0] || duration==TERM_DURATIONS[1] || duration==TERM_DURATIONS[2] || duration==TERM_DURATIONS[3] || duration==TERM_DURATIONS[4],"Invalid term length provided");
-        require(duration > 90 days && duration < 1080 days,"Invalid term length provided");
+        require(duration > MIN_DURATION && duration < MAX_DURATION,"Invalid term length provided");
     
     // 90 Day to 180 days
         if(duration < 180 days){ 
@@ -384,10 +385,10 @@ contract POLYBOND is ERC721, Ownable {
 
     // incremental instead of "Buckets"
         if(duration > 179 days){
-            uint factor = ((duration - 90 days).mul(11 - 3).div(1080 days - 90 days).add(3)); // Untested but I think this will get a value for Risk Factor on a scale from 3 to 11 - calculated in seconds - maybe needs rounded to int?
+            uint factor = ((duration - MIN_DURATION).mul(11 - 3).div(MAX_DURATION - MIN_DURATION).add(3)); // Untested but I think this will get a value for Risk Factor on a scale from 3 to 11 - calculated in seconds - maybe needs rounded to int?
             uint preExponential = PERCENTAGE_PRECISION.add(baseInterestRate).add(RISK_FACTOR.mul(factor));
             uint exponential = preExponential.mul(preExponential).div(PERCENTAGE_PRECISION);
-            for (uint8 i=0;i < factor - 1;i++) {
+            for (uint8 i=0;i < (factor - 1);i++) {
                 exponential = exponential.mul(preExponential).div(PERCENTAGE_PRECISION);
             }
             return exponential.sub(PERCENTAGE_PRECISION);
