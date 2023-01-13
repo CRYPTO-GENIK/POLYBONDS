@@ -294,9 +294,9 @@ contract POLYBOND is ERC721, Ownable {
   /*
     Set the sync rewarded on maturity and interest rate for the given CBOND
   */
-  function setInterestRate(uint256 syncAmount,uint256 secondsInTerm) private{
+  function setInterestRate(uint256 tokenId,uint256 syncAmount,uint256 secondsInTerm) private{
     (uint256 lastSupply,uint256 currentSupply,uint256 lastInterestRate)=getSuppliesNow();
-    (uint256 interestRate,uint256 totalReturn)=getCbondTotalReturn(syncAmount,secondsInTerm);
+    (uint256 interestRate,uint256 totalReturn)=getCbondTotalReturn(tokenId,syncAmount,secondsInTerm);
     syncRewardedOnMaturity[tokenId]=totalReturn;
     syncInterestById[tokenId]=interestRate;
   }
@@ -321,13 +321,12 @@ contract POLYBOND is ERC721, Ownable {
   function getCbondInterestRateNow(
     uint256 duration,
     uint256 luckyExtra) public view returns(uint256){
-
-    return getCbondInterestRate(
-      duration,
-      syncSupplyByDay[lastDaySyncSupplyUpdated],
-      syncSupplyByDay[getDay(block.timestamp)],
-      interestRateByDay[lastDaySyncSupplyUpdated],
-      luckyExtra);
+      return getCbondInterestRate(
+        duration,
+        syncSupplyByDay[lastDaySyncSupplyUpdated],
+        syncSupplyByDay[getDay(block.timestamp)],
+        interestRateByDay[lastDaySyncSupplyUpdated],
+        luckyExtra);
   }
 
   /*
@@ -364,43 +363,67 @@ contract POLYBOND is ERC721, Ownable {
   }
 
   /*
-    New implementation of duration modifier. Approximation of intended formula.
+    New V2 implementation of duration modifier. Approximation of intended formula.
   */
   function getDurationRate(uint duration, uint baseInterestRate) public view returns(uint){
-        require(duration==TERM_DURATIONS[0] || duration==TERM_DURATIONS[1] || duration==TERM_DURATIONS[2] || duration==TERM_DURATIONS[3] || duration==TERM_DURATIONS[4],"Invalid CBOND term length provided");
-
-        if(duration==TERM_DURATIONS[0]){
+        // require(duration==TERM_DURATIONS[0] || duration==TERM_DURATIONS[1] || duration==TERM_DURATIONS[2] || duration==TERM_DURATIONS[3] || duration==TERM_DURATIONS[4],"Invalid term length provided");
+        require(duration > 90 days && duration < 1080 days,"Invalid term length provided");
+    
+    // 90 Day to 180 days
+        if(duration < 180 days){ 
           return baseInterestRate;
         }
-        if(duration==TERM_DURATIONS[1]){
-            uint preExponential = PERCENTAGE_PRECISION.add(baseInterestRate).add(RISK_FACTOR);
+    
+
+    // incremental instead of "Buckets"
+        if(duration > 179 days){
+            uint factor = ((duration - 90 days).mul(11 - 3).div(1080 days - 90 days).add(3)); // Untested but I think this will get a value for Risk Factor on a scale from 3 to 11 - calculated in seconds - maybe needs rounded to int?
+            uint preExponential = PERCENTAGE_PRECISION.add(baseInterestRate).add(RISK_FACTOR.mul(factor));
             uint exponential = preExponential.mul(preExponential).div(PERCENTAGE_PRECISION);
-            return exponential.sub(PERCENTAGE_PRECISION);
-        }
-        if(duration==TERM_DURATIONS[2]){//1 year
-            uint preExponential = PERCENTAGE_PRECISION.add(baseInterestRate).add(RISK_FACTOR.mul(3));
-            uint exponential = preExponential.mul(preExponential).div(PERCENTAGE_PRECISION);
-            for (uint8 i=0;i<2;i++) {
+            for (uint8 i=0;i < factor - 1;i++) {
                 exponential = exponential.mul(preExponential).div(PERCENTAGE_PRECISION);
             }
             return exponential.sub(PERCENTAGE_PRECISION);
         }
-        if(duration==TERM_DURATIONS[3]){//2 years
-            uint preExponential = PERCENTAGE_PRECISION.add(baseInterestRate).add(RISK_FACTOR.mul(7));
-            uint exponential = preExponential.mul(preExponential).div(PERCENTAGE_PRECISION);
-            for (uint8 i=0;i<6;i++) {
-                exponential = exponential.mul(preExponential).div(PERCENTAGE_PRECISION);
-            }
-            return exponential.sub(PERCENTAGE_PRECISION);
-        }
-        if(duration==TERM_DURATIONS[4]){//3 years
-            uint preExponential = PERCENTAGE_PRECISION.add(baseInterestRate).add(RISK_FACTOR.mul(11));
-            uint exponential = preExponential.mul(preExponential).div(PERCENTAGE_PRECISION);
-            for (uint8 i=0;i<10;i++) {
-                exponential = exponential.mul(preExponential).div(PERCENTAGE_PRECISION);
-            }
-            return exponential.sub(PERCENTAGE_PRECISION);
-        }
+
+
+
+    // // 6 Month (180 days)
+    //     if(duration==TERM_DURATIONS[1]){
+    //         uint preExponential = PERCENTAGE_PRECISION.add(baseInterestRate).add(RISK_FACTOR);
+    //         uint exponential = preExponential.mul(preExponential).div(PERCENTAGE_PRECISION);
+    //         return exponential.sub(PERCENTAGE_PRECISION);
+    //     }
+    
+    // // 1 year
+    //     if(duration==TERM_DURATIONS[2]){
+    //         uint preExponential = PERCENTAGE_PRECISION.add(baseInterestRate).add(RISK_FACTOR.mul(3));
+    //         uint exponential = preExponential.mul(preExponential).div(PERCENTAGE_PRECISION);
+    //         for (uint8 i=0;i<2;i++) {
+    //             exponential = exponential.mul(preExponential).div(PERCENTAGE_PRECISION);
+    //         }
+    //         return exponential.sub(PERCENTAGE_PRECISION);
+    //     }
+    
+    // // 2 year
+    //     if(duration==TERM_DURATIONS[3]){
+    //         uint preExponential = PERCENTAGE_PRECISION.add(baseInterestRate).add(RISK_FACTOR.mul(7));
+    //         uint exponential = preExponential.mul(preExponential).div(PERCENTAGE_PRECISION);
+    //         for (uint8 i=0;i<6;i++) {
+    //             exponential = exponential.mul(preExponential).div(PERCENTAGE_PRECISION);
+    //         }
+    //         return exponential.sub(PERCENTAGE_PRECISION);
+    //     }
+    
+    // // 3 year
+    //     if(duration==TERM_DURATIONS[4]){
+    //         uint preExponential = PERCENTAGE_PRECISION.add(baseInterestRate).add(RISK_FACTOR.mul(11));
+    //         uint exponential = preExponential.mul(preExponential).div(PERCENTAGE_PRECISION);
+    //         for (uint8 i=0;i<10;i++) {
+    //             exponential = exponential.mul(preExponential).div(PERCENTAGE_PRECISION);
+    //         }
+    //         return exponential.sub(PERCENTAGE_PRECISION);
+    //     }
     }
 
   
@@ -410,6 +433,7 @@ contract POLYBOND is ERC721, Ownable {
   */
   function getBaseInterestRate(uint256 lastdayInterestRate,uint256 syncSupplyToday,uint256 syncSupplyLast) public pure returns(uint256){
     return Math.min(MAXIMUM_BASE_INTEREST_RATE,Math.max(MINIMUM_BASE_INTEREST_RATE,lastdayInterestRate.mul(syncSupplyToday).div(syncSupplyLast)));
+    syncToken.totalSupply().sub(totalSYNCLocked);
   }
 
   /*
