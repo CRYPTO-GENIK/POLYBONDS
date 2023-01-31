@@ -1,12 +1,19 @@
-pragma solidity ^0.6.0;
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.17;
 
 
-import "./openzeppelin/token/ERC20/IERC20.sol";
-import "./openzeppelin/math/SafeMath.sol";
-import "./openzeppelin/access/Ownable.sol";
+// import "../node_modules/@openzeppelin/contracts/token/ERC20/IERC20.sol";
+// import "../node_modules/@openzeppelin/contracts/utils/math/SafeMath.sol";
+// import "../node_modules/@openzeppelin/contracts/access/Ownable.sol";
+
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
 import "./ApproveAndCallFallback.sol";
 
-contract Sync is IERC20, Ownable {
+contract POLYSYNC is IERC20, Ownable {
   using SafeMath for uint256;
 
   mapping (address => uint256) private balances;
@@ -14,7 +21,7 @@ contract Sync is IERC20, Ownable {
   string public constant name  = "SYNC";
   string public constant symbol = "SYNC";
   uint8 public constant decimals = 18;
-  uint256 _totalSupply = 16000000 * (10 ** 18); // 16 million supply
+  uint256 _totalSupply = 16000000 * (10 ** 19); // 160 million supply
 
   mapping (address => bool) public mintContracts;
 
@@ -23,7 +30,7 @@ contract Sync is IERC20, Ownable {
     _;
   }
 
-  constructor() public Ownable(){
+  constructor() Ownable(){
     balances[msg.sender] = _totalSupply;
     emit Transfer(address(0), msg.sender, _totalSupply);
   }

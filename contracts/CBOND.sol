@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.9;
+pragma solidity ^0.8.17;
 
 /*
 ███████╗██╗§§§██╗███╗§§§██╗§██████╗███╗§§§██╗███████╗████████╗██╗§§§§██╗§██████╗§██████╗§██╗§§██╗
@@ -18,6 +18,19 @@ pragma solidity ^0.8.9;
 §§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§§                        
 */
 
+// import "../node_modules/@openzeppelin/contracts/token/ERC20/IERC20.sol";
+// import "../node_modules/@openzeppelin/contracts/token/ERC721/ERC721.sol";
+// import "../node_modules/@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
+// import "../node_modules/@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+// import "../node_modules/@openzeppelin/contracts/security/Pausable.sol";
+// import "../node_modules/@openzeppelin/contracts/access/Ownable.sol";
+// import "../node_modules/@openzeppelin/contracts/token/ERC721/extensions/ERC721Burnable.sol";
+// import "../node_modules/@openzeppelin/contracts/utils/Counters.sol";
+
+// import "../node_modules/@openzeppelin/contracts/utils/math/SafeMath.sol";
+// import "../node_modules/@openzeppelin/contracts/utils/math/Math.sol";
+// import "../node_modules/@openzeppelin/contracts/utils/Strings.sol";
+
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
@@ -30,9 +43,10 @@ import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
+
 import "./Sync.sol";
 // Uncomment this line to use console.log
-import "hardhat/console.sol";
+// import "../node_modules/hardhat/console.sol";
 
 
 contract POLYBOND is ERC721, ERC721Enumerable, ERC721URIStorage, Pausable, Ownable, ERC721Burnable {
@@ -92,15 +106,14 @@ contract POLYBOND is ERC721, ERC721Enumerable, ERC721URIStorage, Pausable, Ownab
     address syncTreasury;                                                       //Set to Treasury Address
 
     //External contracts
-    Sync syncToken;//The Sync token contract. PolySync is contained in every Stake and is minted to provide interest
+    POLYSYNC syncToken;//The Sync token contract. PolySync is contained in every Stake and is minted to provide interest
 
     
 
     
 
-    constructor(Sync s) ERC721("POLYBOND", "PLYB") {
+    constructor(POLYSYNC s) ERC721("POLYBOND", "PLYB") {
         syncToken=s;
-        interestRateByDay[0]=BASE_INTEREST_RATE_START;
     }
 
     function _baseURI() internal view override returns (string memory) {
@@ -422,10 +435,11 @@ contract POLYBOND is ERC721, ERC721Enumerable, ERC721URIStorage, Pausable, Ownab
   */
   function getCbondInterestRate(
     uint256 duration,
-    uint256 lastBaseInterestRate,
     uint256 luckyExtra) public view returns(uint256){
+    uint256 TotalSupply = syncToken.totalSupply();
+    uint256 CirculatingSupply = TotalSupply.div(2); //TODO This assumes half the supply is locked - overtly basic for testing.
 
-    uint256 baseInterestRate=getBaseInterestRate(lastBaseInterestRate,syncTotalCurrent,syncTotalLast);
+    uint256 baseInterestRate = Math.min(MAXIMUM_BASE_INTEREST_RATE,Math.max(MINIMUM_BASE_INTEREST_RATE,BASE_INTEREST_RATE_START.mul(CirculatingSupply).div(TotalSupply)));
     return getDurationRate(duration,baseInterestRate.add(luckyExtra));
     
   }
@@ -450,6 +464,12 @@ contract POLYBOND is ERC721, ERC721Enumerable, ERC721URIStorage, Pausable, Ownab
 
   /*
     New V2 implementation of duration modifier. Approximation of intended formula.
+
+    The function first checks that the input duration is within a valid range using the require statement. It checks if the duration is greater than a constant variable MIN_DURATION and less than a constant variable MAX_DURATION. If the duration is not within this range, the function will revert with an error message "Invalid term length provided".
+    Then the function checks if the duration is less than 180 days, in that case, it will return the baseInterestRate, which means no modification on the rate.
+    If the duration is greater than 179 days, the function calculates a "factor" variable. This factor is used to calculate the incremental range of interest depending on the duration, which means the longer the duration the higher the interest rate. The factor is calculated by taking the difference between the duration and MIN_DURATION, multiplying by 8, and dividing by the difference between MAX_DURATION and MIN_DURATION. Then it adds 3 to the result, this is to get a value for the risk factor on a scale from 3 to 11.
+    After that, the function calculates the "preExponential" variable by adding the constant variable PERCENTAGE_PRECISION to the baseInterestRate and then adding the product of the constant variable RISK_FACTOR and the factor.
+
   */
   function getDurationRate(uint duration, uint baseInterestRate) public view returns(uint){
     
@@ -472,25 +492,26 @@ contract POLYBOND is ERC721, ERC721Enumerable, ERC721URIStorage, Pausable, Ownab
             }
             return exponential.sub(PERCENTAGE_PRECISION);
         }
+        return 0;
     }
 
   
 
   /*
-    Returns the base interest rate, derived from the previous day interest rate, the current Sync total supply, and the previous day Sync total supply.
-  */
-  function getBaseInterestRate() public pure returns(uint256){
-    // return Math.min(MAXIMUM_BASE_INTEREST_RATE,Math.max(MINIMUM_BASE_INTEREST_RATE,lastdayInterestRate.mul(syncSupplyToday).div(syncSupplyLast)));
-    // syncToken.totalSupply().sub(totalSYNCLocked); TODO: Rewrite to use live supply totals instead of stored 
-    return Math.min(MAXIMUM_BASE_INTEREST_RATE,Math.max(MINIMUM_BASE_INTEREST_RATE,lastdayInterestRate.mul(syncSupplyToday).div(syncSupplyLast)));
-  }
+  //   Returns the base interest rate, derived from the previous day interest rate, the current Sync total supply, and the previous day Sync total supply.
+  // */
+  // function getBaseInterestRate() public pure returns(uint256){
+  //   // return Math.min(MAXIMUM_BASE_INTEREST_RATE,Math.max(MINIMUM_BASE_INTEREST_RATE,lastdayInterestRate.mul(syncSupplyToday).div(syncSupplyLast)));
+  //   // syncToken.totalSupply().sub(totalSYNCLocked); TODO: Rewrite to use live supply totals instead of stored 
+  //   return Math.min(MAXIMUM_BASE_INTEREST_RATE,Math.max(MINIMUM_BASE_INTEREST_RATE,lastdayInterestRate.mul(syncSupplyToday).div(syncSupplyLast)));
+  // }
 
   /*
     Returns the interest rate a Cbond with the given parameters would end up with if it were created.
   */
   function getCbondInterestRateIfUpdated(uint256 duration,uint256 luckyExtra) public view returns(uint256){
     // (uint256 lastSupply,uint256 currentSupply,uint256 lastInterestRate)=getSuppliesIfUpdated();
-    return getCbondInterestRate(duration,lastSupply,currentSupply,lastInterestRate,luckyExtra);
+    return getCbondInterestRate(duration,luckyExtra);
   }
 
 
@@ -514,13 +535,14 @@ contract POLYBOND is ERC721, ERC721Enumerable, ERC721URIStorage, Pausable, Ownab
 
   /*
     Function for recording the Sync total supply by snapshot. Records only when the supply changes.
-  */getBaseInterestRate
+  // */
+  //getBaseInterestRate
   function recordSyncSupply() private{
         uint256 SnapshotId = _supplySnapshotIDCounter.current();
         _supplySnapshotIDCounter.increment();
 
-        syncSupplyChangeID[SnapshotId] = syncToken.totalSupply().sub(totalSYNCLocked); //Now Subtracts Locked SYNC from the Total Supply since we no longer burn SYNC 
-        syncSupplytimestampID[SnapshotId] = block.timestamp;     
+        syncSupplyChange[SnapshotId] = syncToken.totalSupply().sub(totalSYNCLocked); //Now Subtracts Locked SYNC from the Total Supply since we no longer burn SYNC 
+        syncSupplytimestamp[SnapshotId] = block.timestamp;     
 
     // if(syncSupplyByDay[getDay(block.timestamp)]==0){
     //   uint256 day=getDay(block.timestamp);
