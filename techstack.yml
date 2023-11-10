@@ -1,0 +1,25 @@
+repo_name: CRYPTO-GENIK/POLYBONDS
+report_id: 4d409d53a4e9155018a6f3c661f8d03b
+repo_type: Public
+timestamp: '2023-11-10T23:54:18+00:00'
+requested_by: CRYPTO-GENIK
+provider: github
+branch: master
+detected_tools_count: 2
+tools:
+- name: Git
+  description: Fast, scalable, distributed revision control system
+  website_url: http://git-scm.com/
+  open_source: true
+  hosted_saas: false
+  category: Build, Test, Deploy
+  sub_category: Version Control System
+  image_url: https://img.stackshare.io/service/1046/git.png
+  detection_source: Repo Metadata
+- name: solidity
+  description: How people build software
+  website_url: https://ethereum.github.io/solidity/
+  open_source: false
+  hosted_saas: false
+  image_url: https://img.stackshare.io/service/4959/1__IS8pZzkhvd6kUbSFpSgag.png
+  detection_source: Repo Metadata
